@@ -8,7 +8,7 @@ import (
 )
 
 func cond(path query.Path, op query.Operator, value ...string) query.Condition {
-	return query.Condition{Path: path, Operator: op, Value: query.Value(value)}
+	return query.Condition{Path: path, Operator: op, Value: value}
 }
 
 func wrapNot(f query.Filter, n int) query.Filter {

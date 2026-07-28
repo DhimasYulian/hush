@@ -16,7 +16,7 @@ func ValidatePopulate(populates []query.Populate, root *schema.Schema) error {
 
 func validatePopulateAt(populates []query.Populate, root *schema.Schema, depth int) error {
 	for _, pop := range populates {
-		if err := validatePopulateEntry(pop, root, depth); err != nil {
+		if err := validatePopulateEntry(&pop, root, depth); err != nil {
 			return err
 		}
 	}
@@ -25,7 +25,7 @@ func validatePopulateAt(populates []query.Populate, root *schema.Schema, depth i
 
 // validatePopulateEntry validates a single populate entry: relation exists,
 // depth is within limits, and nested options are valid.
-func validatePopulateEntry(pop query.Populate, root *schema.Schema, depth int) error {
+func validatePopulateEntry(pop *query.Populate, root *schema.Schema, depth int) error {
 	rel, ok := root.GetRelation(pop.Relation)
 	if !ok {
 		return query.FieldError(query.ErrInvalidPopulate, pop.Relation, "unknown relation")

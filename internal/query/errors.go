@@ -53,7 +53,7 @@ func PathError(kind error, path Path, message string) error {
 }
 
 // FieldError creates an Error with a kind, field name, and message.
-func FieldError(kind error, field string, message string) error {
+func FieldError(kind error, field, message string) error {
 	return &Error{Kind: kind, Field: field, Message: message}
 }
 
