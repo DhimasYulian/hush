@@ -11,7 +11,6 @@ package main
 import (
 	"fmt"
 	"net/url"
-	"strings"
 
 	"github.com/DhimasYulian/hush"
 	"github.com/doug-martin/goqu/v9"
@@ -168,7 +167,10 @@ func filterExpr(f hush.Filter) (exp.Expression, error) {
 
 func conditionExpr(c hush.Condition) (exp.Expression, error) {
 	col := goqu.C(c.Path[0])
-	val := c.Value[0]
+
+	// hush.Parse coerces each value to the schema-declared type; valueAt
+	// falls back to hush.Coerce for hand-built queries.
+	val := valueAt(c, 0)
 
 	switch c.Operator {
 	case hush.OpEq:
@@ -185,29 +187,21 @@ func conditionExpr(c hush.Condition) (exp.Expression, error) {
 		return col.Lte(val), nil
 
 	case hush.OpIn:
-		vals := make([]interface{}, len(c.Value))
-		for i, v := range c.Value {
-			vals[i] = v
-		}
-		return col.In(vals...), nil
+		return col.In(values(c)...), nil
 	case hush.OpNotIn:
-		vals := make([]interface{}, len(c.Value))
-		for i, v := range c.Value {
-			vals[i] = v
-		}
-		return col.NotIn(vals...), nil
+		return col.NotIn(values(c)...), nil
 
 	case hush.OpBetween:
-		return col.Between(goqu.Range(c.Value[0], c.Value[1])), nil
+		return col.Between(goqu.Range(valueAt(c, 0), valueAt(c, 1))), nil
 
 	case hush.OpContains:
-		return col.Like("%" + escapeLike(val) + "%"), nil
+		return col.Like("%" + hush.EscapeLike(c.Value[0]) + "%"), nil
 	case hush.OpContainsi:
-		return col.ILike("%" + escapeLike(val) + "%"), nil
+		return col.ILike("%" + hush.EscapeLike(c.Value[0]) + "%"), nil
 	case hush.OpStartsWith:
-		return col.Like(escapeLike(val) + "%"), nil
+		return col.Like(hush.EscapeLike(c.Value[0]) + "%"), nil
 	case hush.OpEndsWith:
-		return col.Like("%" + escapeLike(val)), nil
+		return col.Like("%" + hush.EscapeLike(c.Value[0])), nil
 
 	case hush.OpNull:
 		return col.IsNull(), nil
@@ -217,6 +211,28 @@ func conditionExpr(c hush.Condition) (exp.Expression, error) {
 	default:
 		return nil, fmt.Errorf("unsupported operator: %s", c.Operator)
 	}
+}
+
+// valueAt returns the i-th condition value with its schema-declared type.
+func valueAt(c hush.Condition, i int) any {
+	if i < len(c.Values) {
+		return c.Values[i]
+	}
+	if i < len(c.Value) {
+		if v, err := hush.Coerce(c.FieldType, c.Value[i]); err == nil {
+			return v
+		}
+	}
+	return nil
+}
+
+// values returns every condition value with its schema-declared type.
+func values(c hush.Condition) []any {
+	out := make([]any, len(c.Value))
+	for i := range c.Value {
+		out[i] = valueAt(c, i)
+	}
+	return out
 }
 
 func andExpr(a hush.And) (exp.Expression, error) {
@@ -249,11 +265,4 @@ func notExpr(n hush.Not) (exp.Expression, error) {
 		return nil, err
 	}
 	return goqu.L("NOT (?)", expr), nil
-}
-
-func escapeLike(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "%", "\\%")
-	s = strings.ReplaceAll(s, "_", "\\_")
-	return s
 }

@@ -13,13 +13,13 @@ const DefaultMaxLimit = 100
 const AbsoluteMaxLimit = 1000
 
 // FieldType represents the data type of a filterable field.
-type FieldType string
+type FieldType = query.FieldType
 
 const (
-	TypeString FieldType = "string"
-	TypeNumber FieldType = "number"
-	TypeBool   FieldType = "bool"
-	TypeDate   FieldType = "date"
+	TypeString = query.TypeString
+	TypeNumber = query.TypeNumber
+	TypeBool   = query.TypeBool
+	TypeDate   = query.TypeDate
 )
 
 // FieldDef describes a filterable field: its name, type, and allowed operators.

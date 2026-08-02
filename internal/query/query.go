@@ -21,10 +21,17 @@ type Filter interface {
 }
 
 // Condition is a leaf filter: a field path + operator + value(s).
+//
+// FieldType is the schema-declared type of the filtered field and Values holds
+// the raw [Value] strings coerced to that type. Both are populated by Parse
+// once the schema is available, so adapters do not need to resolve types
+// themselves. Values is nil when the operator carries no value (e.g. $null).
 type Condition struct {
-	Path     Path
-	Operator Operator
-	Value    Value
+	Path      Path
+	Operator  Operator
+	Value     Value
+	FieldType FieldType
+	Values    []any
 }
 
 func (c Condition) isFilter() {}
@@ -80,6 +87,16 @@ type Aggregation struct {
 	Func  string
 	Field string
 }
+
+// FieldType represents the data type of a filterable field.
+type FieldType string
+
+const (
+	TypeString FieldType = "string"
+	TypeNumber FieldType = "number"
+	TypeBool   FieldType = "bool"
+	TypeDate   FieldType = "date"
+)
 
 // Operator is a string-typed filter comparison operator.
 type Operator string

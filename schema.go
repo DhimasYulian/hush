@@ -74,3 +74,10 @@ func (s *Schema) Relation(name string) (RelationDef, bool) {
 func (s *Schema) MaxLimit() int {
 	return s.inner.GetMaxLimit()
 }
+
+// Inner returns the underlying schema definition. It is exposed for
+// integrations (such as the hush/gorm adapter) that need to walk relations and
+// their nested targets directly.
+func (s *Schema) Inner() *schema.Schema {
+	return s.inner
+}

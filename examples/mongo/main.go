@@ -13,6 +13,7 @@ package main
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 
 	"github.com/DhimasYulian/hush"
 	"go.mongodb.org/mongo-driver/bson"
@@ -198,38 +199,39 @@ func buildBSON(f hush.Filter) bson.M {
 
 func conditionBSON(c hush.Condition) bson.M {
 	field := c.Path[0]
-	val := c.Value[0]
 
 	switch c.Operator {
 	case hush.OpEq:
-		return bson.M{field: val}
+		return bson.M{field: valueAt(c, 0)}
 	case hush.OpNe:
-		return bson.M{field: bson.M{"$ne": val}}
+		return bson.M{field: bson.M{"$ne": valueAt(c, 0)}}
 	case hush.OpGt:
-		return bson.M{field: bson.M{"$gt": val}}
+		return bson.M{field: bson.M{"$gt": valueAt(c, 0)}}
 	case hush.OpGte:
-		return bson.M{field: bson.M{"$gte": val}}
+		return bson.M{field: bson.M{"$gte": valueAt(c, 0)}}
 	case hush.OpLt:
-		return bson.M{field: bson.M{"$lt": val}}
+		return bson.M{field: bson.M{"$lt": valueAt(c, 0)}}
 	case hush.OpLte:
-		return bson.M{field: bson.M{"$lte": val}}
+		return bson.M{field: bson.M{"$lte": valueAt(c, 0)}}
 
 	case hush.OpIn:
-		return bson.M{field: bson.M{"$in": c.Value}}
+		return bson.M{field: bson.M{"$in": values(c)}}
 	case hush.OpNotIn:
-		return bson.M{field: bson.M{"$nin": c.Value}}
+		return bson.M{field: bson.M{"$nin": values(c)}}
 
 	case hush.OpBetween:
-		return bson.M{field: bson.M{"$gte": c.Value[0], "$lte": c.Value[1]}}
+		return bson.M{field: bson.M{"$gte": valueAt(c, 0), "$lte": valueAt(c, 1)}}
 
+	// LIKE patterns map to regular expressions. Like EscapeLike, QuoteMeta
+	// makes the user's literal text match literally instead of as a pattern.
 	case hush.OpContains:
-		return bson.M{field: bson.M{"$regex": val, "$options": ""}}
+		return bson.M{field: bson.M{"$regex": regexp.QuoteMeta(c.Value[0]), "$options": ""}}
 	case hush.OpContainsi:
-		return bson.M{field: bson.M{"$regex": val, "$options": "i"}}
+		return bson.M{field: bson.M{"$regex": regexp.QuoteMeta(c.Value[0]), "$options": "i"}}
 	case hush.OpStartsWith:
-		return bson.M{field: bson.M{"$regex": "^" + val, "$options": "i"}}
+		return bson.M{field: bson.M{"$regex": "^" + regexp.QuoteMeta(c.Value[0]), "$options": ""}}
 	case hush.OpEndsWith:
-		return bson.M{field: bson.M{"$regex": val + "$", "$options": "i"}}
+		return bson.M{field: bson.M{"$regex": regexp.QuoteMeta(c.Value[0]) + "$", "$options": ""}}
 
 	case hush.OpNull:
 		return bson.M{field: nil}
@@ -239,6 +241,29 @@ func conditionBSON(c hush.Condition) bson.M {
 	default:
 		return bson.M{}
 	}
+}
+
+// valueAt returns the i-th condition value with its schema-declared type,
+// falling back to hush.Coerce for hand-built queries that skipped Parse.
+func valueAt(c hush.Condition, i int) any {
+	if i < len(c.Values) {
+		return c.Values[i]
+	}
+	if i < len(c.Value) {
+		if v, err := hush.Coerce(c.FieldType, c.Value[i]); err == nil {
+			return v
+		}
+	}
+	return nil
+}
+
+// values returns every condition value with its schema-declared type.
+func values(c hush.Condition) []any {
+	out := make([]any, len(c.Value))
+	for i := range c.Value {
+		out[i] = valueAt(c, i)
+	}
+	return out
 }
 
 func andBSON(a hush.And) bson.M {
@@ -261,7 +286,7 @@ func notBSON(n hush.Not) bson.M {
 	switch child := n.Filter.(type) {
 	case hush.Condition:
 		field := child.Path[0]
-		return bson.M{field: bson.M{"$not": bson.M{operatorToMongo(child.Operator): child.Value[0]}}}
+		return bson.M{field: bson.M{"$not": bson.M{operatorToMongo(child.Operator): valueAt(child, 0)}}}
 	default:
 		return bson.M{"$nor": []bson.M{buildBSON(n.Filter)}}
 	}

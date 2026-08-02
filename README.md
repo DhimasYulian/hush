@@ -213,13 +213,33 @@ if err != nil {
 
 Parse and build errors fail on the first error. Validation errors accumulate across all sections (filters, fields, sort, populate, pagination) and are joined via `errors.Join`.
 
+## GORM adapter
+
+`hush/gorm` is a first-class adapter: a validated query translates to GORM
+clauses with no per-operator code, tested against SQLite and Postgres.
+
+```go
+import hushgorm "github.com/DhimasYulian/hush/gorm"
+
+q, err := hush.Parse(values, schema)
+if err != nil { /* ... */ }
+
+// db.Scopes(gorm.Scopes(schema, q)) is a GORM scope.
+rows := db.Model(&Article{}).Scopes(hushgorm.Scopes(schema, q)).Find(&articles)
+```
+
+The scope handles SELECT (whitelisted fields, groupBy, aggregate aliases),
+WHERE (every hush operator, typed values, LIKE escaping, logical grouping),
+ORDER BY, GROUP BY, LIMIT/OFFSET (with limit+1 support for `withCount`), and
+nested PRELOAD with per-relation whitelists and max-depth enforcement.
+
 ## Examples
 
-The [`examples/`](./examples) directory contains integration examples showing how to translate hush queries into different database query formats:
+The [`examples/`](./examples) directory contains integration examples showing how to translate hush queries into different database query formats. [`examples/walk`](./examples/walk) is the official porting contract for new integrations:
 
 | Example                     | Description                                                         |
 | --------------------------- | ------------------------------------------------------------------- |
-| [`walk`](./examples/walk)   | Core filter walker pattern — the starting point for any integration |
+| [`walk`](./examples/walk)   | Official porting contract — the starting point for any integration |
 | [`goqu`](./examples/goqu)   | SQL query builder integration (PostgreSQL, MySQL, SQLite)           |
 | [`gorm`](./examples/gorm)   | GORM ORM integration                                                |
 | [`mongo`](./examples/mongo) | MongoDB driver integration                                          |

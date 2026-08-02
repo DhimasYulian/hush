@@ -26,20 +26,28 @@ go run ./examples/...
 
 ## Examples
 
-### walk — Filter Walker Pattern
+### walk — Filter Walker Pattern (porting contract)
 
 ```
 go run ./examples/walk
 ```
 
-**Teaches the core pattern** for integrating hush with any database layer. Demonstrates:
+**This is the official reference contract for integrating hush with any
+database or query builder.** It teaches the core pattern every adapter must
+support:
 
 - Type-switching on `hush.Filter` to handle `Condition`, `And`, `Or`, `Not`
 - Recursive walking with depth tracking
-- Translating `hush.Condition` operators to human-readable strings
-- A verbose tree printer for debugging
+- Translating `hush.Condition` operators to target expressions
+- Reading values through `valueAt`, which uses the type-coerced
+  [hush.Condition.Values] populated by `hush.Parse` and falls back to
+  [hush.Coerce] for hand-built queries
+- Escaping LIKE wildcards in user input with [hush.EscapeLike]
+- Detecting the value-less `$null` / `$notNull` operators via
+  [hush.IsNullOperator] / [hush.IsNotNullOperator]
 
-This is the starting point if you're integrating hush with a database or ORM not covered here. The `walkFilter` function can be adapted to generate SQL, MongoDB bson.M, or any other query format.
+To integrate hush with a new database, copy this example and replace the string
+output with your target query builder calls.
 
 ### goqu — SQL Query Builder
 
@@ -52,7 +60,7 @@ Translates hush queries into [goqu](https://github.com/doug-martin/goqu) express
 - Mapping hush operators to goqu column expressions (`Eq`, `Gt`, `Like`, `ILike`, etc.)
 - Combining expressions with `exp.And` / `exp.Or`
 - Building SELECT, ORDER BY, LIMIT, and OFFSET clauses
-- Escaping LIKE wildcards in user input
+- Binding coerced `Condition.Values` and escaping LIKE wildcards with `hush.EscapeLike`
 
 ### gorm — GORM ORM
 
@@ -64,8 +72,13 @@ Translates hush queries into [GORM](https://gorm.io) clause expressions. Demonst
 
 - Mapping hush operators to GORM clauses (`Eq`, `Like`, `In`, `Between`, etc.)
 - Building recursive WHERE conditions with `clause.AndConditions` / `clause.OrConditions`
-- Using `clause.Expr` for case-insensitive LIKE (`LOWER() LIKE LOWER()`)
+- Using `clause.Expr` with an `ESCAPE` clause so `hush.EscapeLike`-escaped wildcards match literally
+- Rendering `$null` / `$notNull` as `IS NULL` / `IS NOT NULL`
 - Applying SELECT, ORDER BY, LIMIT, and OFFSET
+
+> Prefer the real adapter: the `hush/gorm` package ships this exact translation
+> as a ready-made `db.Scopes(gorm.Scopes(schema, q))` scope, tested against
+> SQLite and Postgres.
 
 ### mongo — MongoDB Driver
 
@@ -77,7 +90,8 @@ Translates hush queries into `bson.M` filter documents for the [official MongoDB
 
 - The most natural 1:1 mapping (hush operators map directly to MongoDB operators)
 - Combining filters with `$and` / `$or` / `$nor`
-- Using `$regex` for string pattern matching
+- Using `$regex` with `regexp.QuoteMeta` for literal string pattern matching
+- Binding coerced `Condition.Values` with a `hush.Coerce` fallback
 - Building projection and sort documents
 
 ## Operator Mapping Reference
@@ -93,17 +107,21 @@ Translates hush queries into `bson.M` filter documents for the [official MongoDB
 | `$in`         | `col.In(vals...)`    | `IN{Values: ...}`  | `$in: [...]`   |
 | `$notIn`      | `col.NotIn(vals...)` | `Not(IN{...})`     | `$nin: [...]`  |
 | `$between`    | `col.Between(a, b)`  | `Gte + Lte`        | `$gte + $lte`  |
-| `$contains`   | `col.Like(%v%)`      | `Like{val}`        | `$regex: val`  |
-| `$containsi`  | `col.ILike(%v%)`     | `LOWER LIKE LOWER` | `$regex, $i`   |
-| `$startsWith` | `col.Like(v%)`       | `Like{val%}`       | `$regex: ^val` |
-| `$endsWith`   | `col.Like(%v)`       | `Like{%val}`       | `$regex: val$` |
-| `$null`       | `col.IsNull()`       | `Eq{nil}`          | `field: nil`   |
-| `$notNull`    | `col.IsNotNull()`    | `Neq{nil}`         | `$ne: nil`     |
+| `$contains`   | `col.Like(%v%)`      | `LIKE ... ESCAPE`  | `$regex: v`    |
+| `$containsi`  | `col.ILike(%v%)`     | `LOWER LIKE ...`   | `$regex, $i`   |
+| `$startsWith` | `col.Like(v%)`       | `LIKE ... ESCAPE`  | `$regex: ^v`   |
+| `$endsWith`   | `col.Like(%v)`       | `LIKE ... ESCAPE`  | `$regex: v$`   |
+| `$null`       | `col.IsNull()`       | `IS NULL`          | `field: nil`   |
+| `$notNull`    | `col.IsNotNull()`    | `IS NOT NULL`      | `$ne: nil`     |
 
 ## Adding Your Own Integration
 
-The `walk/main.go` example shows the universal pattern. To integrate hush with a new database:
+The `walk/main.go` example is the official porting contract. To integrate hush
+with a new database:
 
 1. Copy the `walkFilter` / `walkCondition` type-switch skeleton
 2. Replace the string output with your target query builder calls
-3. Handle `Sort`, `Fields`, and `Pagination` separately (they're straightforward field/value mappings)
+3. Read condition values through the `valueAt` pattern so you bind coerced
+   `Condition.Values` (falling back to `hush.Coerce`)
+4. Escape user input for pattern operators with `hush.EscapeLike`
+5. Handle `Sort`, `Fields`, and `Pagination` separately (they're straightforward field/value mappings)

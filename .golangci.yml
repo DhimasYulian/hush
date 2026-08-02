@@ -19,6 +19,8 @@ linters:
         - diagnostic
         - style
         - performance
+      disabled-checks:
+        - hugeParam
 
 formatters:
   enable:

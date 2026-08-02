@@ -1,12 +1,12 @@
 // Package main demonstrates ALL hush features by walking a comprehensive query.
 //
-// This example defines a schema with relations, parses a rich query string
-// containing every hush feature, then recursively walks the resulting tree to
-// display filters, fields, sort, group-by, aggregations, pagination, and
-// populate in a human-readable format.
-//
-// The walkFilter and walkPopulate functions are the universal pattern you
-// adapt when integrating hush with any database or query builder.
+// This example is the reference contract for integrating hush with any
+// database or query builder. It parses a rich query string containing every
+// hush feature, then recursively walks the resulting tree. The walkFilter and
+// walkPopulate functions show the canonical shape every adapter must support:
+// type-coerced condition values ([hush.Condition.Values], populated by
+// [hush.Parse]) with a raw-string fallback via [hush.Coerce], LIKE-wildcard
+// escaping via [hush.EscapeLike], and the [$null]/[$notNull] helpers.
 //
 // Usage:
 //
@@ -195,40 +195,68 @@ func walkCondition(c hush.Condition) string {
 	field := c.Path[0]
 	val := c.Value[0]
 
+	// $null / $notNull carry no value; the helpers make them explicit.
+	if hush.IsNullOperator(c.Operator) {
+		return fmt.Sprintf("%s IS NULL", field)
+	}
+	if hush.IsNotNullOperator(c.Operator) {
+		return fmt.Sprintf("%s IS NOT NULL", field)
+	}
+
 	switch c.Operator {
 	case hush.OpEq:
-		return fmt.Sprintf("%s = %q", field, val)
+		return fmt.Sprintf("%s = %v", field, valueAt(c, 0))
 	case hush.OpNe:
-		return fmt.Sprintf("%s != %q", field, val)
+		return fmt.Sprintf("%s != %v", field, valueAt(c, 0))
 	case hush.OpGt:
-		return fmt.Sprintf("%s > %s", field, val)
+		return fmt.Sprintf("%s > %v", field, valueAt(c, 0))
 	case hush.OpGte:
-		return fmt.Sprintf("%s >= %s", field, val)
+		return fmt.Sprintf("%s >= %v", field, valueAt(c, 0))
 	case hush.OpLt:
-		return fmt.Sprintf("%s < %s", field, val)
+		return fmt.Sprintf("%s < %v", field, valueAt(c, 0))
 	case hush.OpLte:
-		return fmt.Sprintf("%s <= %s", field, val)
+		return fmt.Sprintf("%s <= %v", field, valueAt(c, 0))
 	case hush.OpIn:
-		return fmt.Sprintf("%s IN (%s)", field, strings.Join(c.Value, ", "))
+		return fmt.Sprintf("%s IN (%s)", field, joinValues(c))
 	case hush.OpNotIn:
-		return fmt.Sprintf("%s NOT IN (%s)", field, strings.Join(c.Value, ", "))
+		return fmt.Sprintf("%s NOT IN (%s)", field, joinValues(c))
 	case hush.OpBetween:
-		return fmt.Sprintf("%s BETWEEN %s AND %s", field, c.Value[0], c.Value[1])
+		return fmt.Sprintf("%s BETWEEN %v AND %v", field, valueAt(c, 0), valueAt(c, 1))
 	case hush.OpContains:
-		return fmt.Sprintf("%s LIKE '%%%s%%'", field, val)
+		return fmt.Sprintf("%s LIKE '%%%s%%'", field, hush.EscapeLike(val))
 	case hush.OpContainsi:
-		return fmt.Sprintf("%s ILIKE '%%%s%%'", field, val)
+		return fmt.Sprintf("%s ILIKE '%%%s%%'", field, hush.EscapeLike(val))
 	case hush.OpStartsWith:
-		return fmt.Sprintf("%s LIKE '%s%%'", field, val)
+		return fmt.Sprintf("%s LIKE '%s%%'", field, hush.EscapeLike(val))
 	case hush.OpEndsWith:
-		return fmt.Sprintf("%s LIKE '%%%s'", field, val)
-	case hush.OpNull:
-		return fmt.Sprintf("%s IS NULL", field)
-	case hush.OpNotNull:
-		return fmt.Sprintf("%s IS NOT NULL", field)
+		return fmt.Sprintf("%s LIKE '%%%s'", field, hush.EscapeLike(val))
 	default:
-		return fmt.Sprintf("%s %s %q", field, c.Operator, val)
+		return fmt.Sprintf("%s %s %v", field, c.Operator, valueAt(c, 0))
 	}
+}
+
+// valueAt returns the i-th condition value with its schema-declared type.
+// hush.Parse populates Condition.Values with the coerced values; the raw
+// string fallback supports hand-built queries that skipped Parse.
+func valueAt(c hush.Condition, i int) any {
+	if i < len(c.Values) {
+		return c.Values[i]
+	}
+	if i < len(c.Value) {
+		if v, err := hush.Coerce(c.FieldType, c.Value[i]); err == nil {
+			return v
+		}
+	}
+	return ""
+}
+
+// joinValues renders every condition value comma-separated.
+func joinValues(c hush.Condition) string {
+	parts := make([]string, len(c.Value))
+	for i := range c.Value {
+		parts[i] = fmt.Sprintf("%v", valueAt(c, i))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func walkAnd(a hush.And) string {
