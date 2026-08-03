@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/DhimasYulian/hush/internal/coerce"
 	"github.com/DhimasYulian/hush/internal/query"
 	"github.com/DhimasYulian/hush/internal/schema"
 )
@@ -13,19 +14,22 @@ import (
 const maxLogicalDepth = 10
 
 // ValidateFilter validates a filter tree against the schema, checking that all
-// fields are filterable, operators are allowed, and value types match.
-func ValidateFilter(f query.Filter, root *schema.Schema) error {
+// fields are filterable, operators are allowed, and value types match. It
+// returns a copy of the tree whose leaf [query.Condition]s carry their
+// schema-declared FieldType and type-coerced Values.
+func ValidateFilter(f query.Filter, root *schema.Schema) (query.Filter, error) {
 	return validateFilterAt(f, root, 0)
 }
 
-// validateFilterAt recursively validates a filter node at a given depth.
-func validateFilterAt(f query.Filter, s *schema.Schema, depth int) error {
+// validateFilterAt recursively validates a filter node at a given depth and
+// returns the node enriched with field types and coerced values.
+func validateFilterAt(f query.Filter, s *schema.Schema, depth int) (query.Filter, error) {
 	if f == nil {
-		return nil
+		return nil, nil
 	}
 
 	if depth > maxLogicalDepth {
-		return query.QueryError(ErrNestingTooDeep, fmt.Sprintf("filter nesting exceeds max depth %d", maxLogicalDepth))
+		return nil, query.QueryError(ErrNestingTooDeep, fmt.Sprintf("filter nesting exceeds max depth %d", maxLogicalDepth))
 	}
 
 	switch n := f.(type) {
@@ -33,43 +37,59 @@ func validateFilterAt(f query.Filter, s *schema.Schema, depth int) error {
 		return validateCondition(n, s)
 
 	case query.And:
-		return validateFilterList(n.Filters, s, depth+1)
+		filters, err := validateFilterList(n.Filters, s, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return query.And{Filters: filters}, nil
 
 	case query.Or:
-		return validateFilterList(n.Filters, s, depth+1)
+		filters, err := validateFilterList(n.Filters, s, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return query.Or{Filters: filters}, nil
 
 	case query.Not:
-		return validateFilterAt(n.Filter, s, depth+1)
+		child, err := validateFilterAt(n.Filter, s, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return query.Not{Filter: child}, nil
 
 	default:
-		return query.QueryError(ErrUnknownFilterNode, fmt.Sprintf("%T", f))
+		return nil, query.QueryError(ErrUnknownFilterNode, fmt.Sprintf("%T", f))
 	}
 }
 
-func validateFilterList(filters []query.Filter, s *schema.Schema, depth int) error {
-	for _, f := range filters {
-		if err := validateFilterAt(f, s, depth); err != nil {
-			return err
+func validateFilterList(filters []query.Filter, s *schema.Schema, depth int) ([]query.Filter, error) {
+	out := make([]query.Filter, len(filters))
+	for i, f := range filters {
+		enriched, err := validateFilterAt(f, s, depth)
+		if err != nil {
+			return nil, err
 		}
+		out[i] = enriched
 	}
-	return nil
+	return out, nil
 }
 
 // validateCondition validates a single filter condition: field exists, operator
-// is allowed, and value types match the field type.
-func validateCondition(c query.Condition, s *schema.Schema) error {
+// is allowed, and value types match the field type. It returns the condition
+// enriched with its schema-declared field type and coerced values.
+func validateCondition(c query.Condition, s *schema.Schema) (query.Condition, error) {
 	target, field, err := ResolvePath(s, c.Path)
 	if err != nil {
-		return err
+		return query.Condition{}, err
 	}
 
 	def, ok := target.GetFilterable(field)
 	if !ok {
-		return query.PathError(ErrUnknownField, c.Path, fmt.Sprintf("%q is not filterable", field))
+		return query.Condition{}, query.PathError(ErrUnknownField, c.Path, fmt.Sprintf("%q is not filterable", field))
 	}
 
 	if !def.Operators[c.Operator] {
-		return query.OperatorError(
+		return query.Condition{}, query.OperatorError(
 			ErrOperatorNotAllowed,
 			field,
 			c.Operator,
@@ -77,26 +97,45 @@ func validateCondition(c query.Condition, s *schema.Schema) error {
 		)
 	}
 
-	if err := validateValue(def.Type, c.Operator, c.Value, field); err != nil {
-		return err
+	values, err := validateValue(def.Type, c.Operator, c.Value, field)
+	if err != nil {
+		return query.Condition{}, err
 	}
 
-	return nil
+	c.FieldType = def.Type
+	c.Values = values
+
+	return c, nil
 }
 
-// validateValue checks that all values in a condition match the expected field type.
-func validateValue(t schema.FieldType, op query.Operator, values query.Value, field string) error {
+// validateValue checks that all values in a condition match the expected field
+// type and returns the coerced values. NULL operators treat their value as a
+// bool presence flag, so they carry no coerced data.
+func validateValue(t schema.FieldType, op query.Operator, values query.Value, field string) ([]any, error) {
 	if op == query.OpNull || op == query.OpNotNull {
 		t = schema.TypeBool
 	}
 
 	for _, v := range values {
 		if err := validateValueType(t, v); err != nil {
-			return query.FieldError(ErrInvalidValue, field, fmt.Sprintf("field %q: %s", field, err))
+			return nil, query.FieldError(ErrInvalidValue, field, fmt.Sprintf("field %q: %s", field, err))
 		}
 	}
 
-	return nil
+	if op == query.OpNull || op == query.OpNotNull {
+		return nil, nil
+	}
+
+	out := make([]any, len(values))
+	for i, v := range values {
+		coerced, err := coerce.Coerce(t, v)
+		if err != nil {
+			return nil, query.FieldError(ErrInvalidValue, field, fmt.Sprintf("field %q: %s", field, err))
+		}
+		out[i] = coerced
+	}
+
+	return out, nil
 }
 
 // validateValueType checks that a single string value parses correctly for the

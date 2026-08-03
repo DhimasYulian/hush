@@ -213,27 +213,164 @@ if err != nil {
 
 Parse and build errors fail on the first error. Validation errors accumulate across all sections (filters, fields, sort, populate, pagination) and are joined via `errors.Join`.
 
-## Examples
+## GORM adapter
 
-The [`examples/`](./examples) directory contains integration examples showing how to translate hush queries into different database query formats:
+`hush/gorm` is a first-class adapter: a validated query translates to GORM
+clauses with no per-operator code, tested against SQLite and Postgres.
 
-| Example                     | Description                                                         |
-| --------------------------- | ------------------------------------------------------------------- |
-| [`walk`](./examples/walk)   | Core filter walker pattern — the starting point for any integration |
-| [`goqu`](./examples/goqu)   | SQL query builder integration (PostgreSQL, MySQL, SQLite)           |
-| [`gorm`](./examples/gorm)   | GORM ORM integration                                                |
-| [`mongo`](./examples/mongo) | MongoDB driver integration                                          |
+```go
+import hushgorm "github.com/DhimasYulian/hush/gorm"
 
-Run any example:
+q, err := hush.Parse(values, schema)
+if err != nil { /* ... */ }
 
-```bash
-go run ./examples/walk
-go run ./examples/goqu
-go run ./examples/gorm
-go run ./examples/mongo
+// db.Scopes(gorm.Scopes(schema, q)) is a GORM scope.
+rows := db.Model(&Article{}).Scopes(hushgorm.Scopes(schema, q)).Find(&articles)
 ```
 
-See [`examples/README.md`](./examples/README.md) for the full operator mapping reference and details on each integration.
+The scope handles SELECT (whitelisted fields, groupBy, aggregate aliases),
+WHERE (every hush operator, typed values, LIKE escaping, logical grouping),
+ORDER BY, GROUP BY, LIMIT/OFFSET, and nested PRELOAD with per-relation
+whitelists and max-depth enforcement.
+
+A complete end-to-end walkthrough — schema, parse, scope, result mapping, and
+eager loading — is available as the runnable
+[`gorm.Scopes` example](https://pkg.go.dev/github.com/DhimasYulian/hush/gorm#example-Scopes).
+
+### Querying with the scope
+
+```go
+// Values parsed from a request:
+values := url.Values{
+	"filters[title][$containsi]":           {"go"},
+	"filters[views][$gte]":                 {"50"},
+	"filters[status][$eq]":                 {"published"},
+	"sort[0]":                              {"createdAt:desc"},
+	"fields[0]":                            {"title"},
+	"pagination[limit]":                    {"25"},
+	"pagination[start]":                    {"0"},
+	"populate[author][fields][0]":          {"name"},
+	"populate[author][filters][name][$eq]": {"Alice"},
+}
+
+q, err := hush.Parse(values, schema)
+if err != nil { /* ... */ }
+
+if err := db.Model(&Article{}).
+	Scopes(hushgorm.Scopes(schema, q)).
+	Find(&articles).Error; err != nil { /* ... */ }
+```
+
+- **Pagination & has-more:** `pagination[withCount]` defaults to `true`. With a
+  limit set, the scope fetches `limit+1` rows so you can detect another page:
+
+  ```go
+  hasMore := len(articles) > limit
+  ```
+
+  Set `pagination[withCount]=false` for an exact limit.
+
+- **Group by & aggregations:** `groupBy` columns and `aggregations` aliases are
+  SELECTed, so scan into a struct whose fields match the aliases:
+
+  ```go
+  var summaries []struct {
+	Status     string
+	Cnt        int
+	TotalViews float64
+  }
+  db.Model(&Article{}).Scopes(hushgorm.Scopes(schema, q)).Find(&summaries)
+  ```
+
+  for `groupBy[0]=status`, `aggregations[cnt][func]=count`,
+  `aggregations[total_views][func]=sum`, `aggregations[total_views][field]=views`.
+
+- **Eager loading:** each `populate` becomes a `db.Preload` with its own
+  whitelisted Select, Order, and translated Where. hush relation names are
+  CamelCased to GORM field names (`"author"` → `"Author"`).
+
+- **Errors:** translation errors (unknown relation, depth exceeded) are recorded
+  on the statement via `db.AddError` and surface on `db.Error` when the query
+  runs, matching GORM conventions.
+
+## MongoDB adapter
+
+`hush/mongo` is a first-class adapter: a validated query translates to MongoDB
+`bson` filter/projection/sort documents and aggregation pipelines, tested
+against the in-memory `mtest` server and a real mongod.
+
+```go
+import hushmongo "github.com/DhimasYulian/hush/mongo"
+
+q, err := hush.Parse(values, schema)
+if err != nil { /* ... */ }
+
+// Find path: filter + projection/sort/pagination as find options.
+cur, err := coll.Find(ctx, hushmongo.Filter(q), hushmongo.FindOptions(schema, q))
+
+// Aggregate path: $match/$sort/$skip/$limit/$group/$lookup pipeline, or a
+// $facet pipeline returning results and an exact total count in one call.
+pipe, err := hushmongo.Pipeline(schema, q)
+facet, err := hushmongo.PipelineFacet(schema, q)
+```
+
+The translator covers every hush operator (typed values, regex metacharacter
+escaping, logical `$and`/`$or`/`$nor` grouping), whitelisted projection and
+sort, `$group` with `count`/`sum`/`avg` aggregations, and nested `$lookup` for
+populates — with per-relation whitelists and max-depth enforcement.
+
+A complete walkthrough — schema, parse, translated filter, find options, and
+pipelines — is available as the runnable
+[`mongo.Pipeline` example](https://pkg.go.dev/github.com/DhimasYulian/hush/mongo#example-Pipeline).
+
+### Translation notes
+
+- **Conventions:** related collections are named `relation+"s"` (e.g. `author`
+  → `authors`) and joined on `relation+"_id"` local fields against the foreign
+  `_id`. All four are configurable on a `hushmongo.Translator` if your schema
+  differs.
+
+  ```go
+  t := hushmongo.Translator{
+  	CollectionName: func(rel string) string { return "usr_" + rel },
+  	LocalField:     func(rel string) string { return rel + "Id" },
+  	ForeignField:   "key",
+  }
+  pipe, err := t.Pipeline(schema, q)
+  ```
+
+- **Pagination & has-more:** `pagination[withCount]` defaults to `true`, so the
+  Find path requests `limit+1` documents and you detect a next page the same way
+  as with GORM:
+
+  ```go
+  hasMore := len(docs) > limit
+  ```
+
+  The `$facet` path returns the exact count instead: decode the single result
+  document's `results` and `totalCount` keys.
+
+- **Projection:** requesting `fields` excludes `_id` (`SELECT fields` parity);
+  the foreign `_id` is always retained inside `$lookup` projections so nested
+  joins keep matching.
+
+- **Errors:** translation errors (unknown relation, depth exceeded) are returned
+  by `Pipeline`/`PipelineFacet`, and `Filter`/`Projection`/`Sort` silently skip
+  fields that failed validation earlier.
+
+## Example
+
+The [`_example/`](./_example) directory contains the official porting contract
+for integrating hush with a database or query builder that does not yet have a
+first-class adapter. Its `main.go` demonstrates every hush feature and teaches
+the filter-walker pattern a new adapter must support:
+
+```bash
+go run ./_example
+```
+
+See [`_example/README.md`](./_example/README.md) for details on the porting
+contract.
 
 ## License
 

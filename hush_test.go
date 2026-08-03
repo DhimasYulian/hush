@@ -27,9 +27,11 @@ func TestParseFacade(t *testing.T) {
 
 	require.Equal(t, &Query{
 		Filters: Condition{
-			Path:     Path{"title"},
-			Operator: OpContainsi,
-			Value:    Value{"go"},
+			Path:      Path{"title"},
+			Operator:  OpContainsi,
+			Value:     Value{"go"},
+			FieldType: TypeString,
+			Values:    []any{"go"},
 		},
 		Fields: []Field{"title"},
 		Sort: []Sort{
@@ -95,9 +97,11 @@ func TestParseFacade_WithGroupBy(t *testing.T) {
 
 	require.Equal(t, &Query{
 		Filters: Condition{
-			Path:     Path{"title"},
-			Operator: OpContainsi,
-			Value:    Value{"go"},
+			Path:      Path{"title"},
+			Operator:  OpContainsi,
+			Value:     Value{"go"},
+			FieldType: TypeString,
+			Values:    []any{"go"},
 		},
 		Fields:  []Field{"title"},
 		Sort:    []Sort{{Path: Path{"createdAt"}, Direction: SortDesc}},
@@ -184,9 +188,11 @@ func TestParseFacade_WithPopulate(t *testing.T) {
 
 	want := &Query{
 		Filters: Condition{
-			Path:     Path{"title"},
-			Operator: OpContainsi,
-			Value:    Value{"go"},
+			Path:      Path{"title"},
+			Operator:  OpContainsi,
+			Value:     Value{"go"},
+			FieldType: TypeString,
+			Values:    []any{"go"},
 		},
 		Fields: []Field{"title"},
 		Sort:   []Sort{{Path: Path{"createdAt"}, Direction: SortDesc}},
@@ -200,9 +206,11 @@ func TestParseFacade_WithPopulate(t *testing.T) {
 				Fields:   []Field{"name"},
 				Sorts:    []Sort{{Path: Path{"name"}, Direction: SortAsc}},
 				Filters: Condition{
-					Path:     Path{"name"},
-					Operator: OpEq,
-					Value:    Value{"Alice"},
+					Path:      Path{"name"},
+					Operator:  OpEq,
+					Value:     Value{"Alice"},
+					FieldType: TypeString,
+					Values:    []any{"Alice"},
 				},
 			},
 		},

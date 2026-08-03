@@ -61,9 +61,11 @@ A leaf filter: a field path + operator + value(s).
 
 ```go
 type Condition struct {
-    Path     Path
-    Operator Operator
-    Value    Value
+    Path      Path
+    Operator  Operator
+    Value     Value
+    FieldType FieldType
+    Values    []any
 }
 ```
 
@@ -72,6 +74,8 @@ type Condition struct {
 | `Path` | Field path segments (e.g. `["title"]` or `["author", "name"]`) |
 | `Operator` | Comparison operator (e.g. `$eq`, `$containsi`) |
 | `Value` | One or more string values (e.g. `["go"]` or `["a", "b"]` for `$in`) |
+| `FieldType` | The schema-declared data type of the filtered field |
+| `Values` | The raw `Value` strings coerced to `FieldType`, populated by `hush.Parse` so adapters don't resolve types themselves. `nil` for value-less operators (e.g. `$null`) |
 
 ### And
 
@@ -178,6 +182,21 @@ type Aggregation struct {
 | `Alias` | Output key name (e.g. `"total"`, `"avgAge"`) |
 | `Func` | Aggregate function: `"count"`, `"sum"`, or `"avg"` |
 | `Field` | Field to aggregate on. `"*"` for count (default when omitted), specific field name for sum/avg |
+
+### FieldType
+
+The schema-declared data type of a filterable field, used to coerce condition values.
+
+```go
+type FieldType string
+```
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `TypeString` | `"string"` | String fields |
+| `TypeNumber` | `"number"` | Numeric fields |
+| `TypeBool` | `"bool"` | Boolean fields |
+| `TypeDate` | `"date"` | Date/time fields |
 
 ### Operator
 

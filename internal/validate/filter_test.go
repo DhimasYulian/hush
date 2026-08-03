@@ -145,7 +145,7 @@ func TestValidateFilter(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := ValidateFilter(tc.filter, article)
+			_, err := ValidateFilter(tc.filter, article)
 
 			if tc.wantErr != nil {
 				require.Error(t, err)

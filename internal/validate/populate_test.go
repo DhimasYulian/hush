@@ -115,7 +115,7 @@ func TestValidatePopulate(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := ValidatePopulate(tc.pops, article)
+			_, err := ValidatePopulate(tc.pops, article)
 
 			if tc.wantErr != nil {
 				require.Error(t, err)
@@ -184,7 +184,7 @@ func TestValidatePopulate_MaxDepth(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := ValidatePopulate(tc.pops, top)
+			_, err := ValidatePopulate(tc.pops, top)
 
 			if tc.wantErr != nil {
 				require.Error(t, err)
@@ -231,11 +231,11 @@ func TestValidatePopulate_MaxDepthExceeded(t *testing.T) {
 	}
 
 	// "a" used at depth 0: 0 >= 1 is false, allowed.
-	err := ValidatePopulate([]query.Populate{{Relation: "a"}}, top)
+	_, err := ValidatePopulate([]query.Populate{{Relation: "a"}}, top)
 	require.NoError(t, err)
 
 	// "b" would be used at depth 1: 1 >= its own maxDepth of 1, rejected.
-	err = ValidatePopulate([]query.Populate{
+	_, err = ValidatePopulate([]query.Populate{
 		{Relation: "a", Populates: []query.Populate{
 			{Relation: "b"},
 		}},
