@@ -13,12 +13,12 @@ func ParsePath(key string) ([]string, error) {
 
 	var (
 		segments  []string
-		current   []rune
+		current   []byte
 		inBracket bool
 	)
 
-	for _, r := range key {
-		switch r {
+	for i := 0; i < len(key); i++ {
+		switch key[i] {
 		case '[':
 			if inBracket {
 				return nil, query.QueryError(ErrInvalidSyntax, "unexpected '['")
@@ -53,7 +53,7 @@ func ParsePath(key string) ([]string, error) {
 				return nil, query.QueryError(ErrUnexpectedCharacter, "unexpected character")
 			}
 
-			current = append(current, r)
+			current = append(current, key[i])
 		}
 	}
 

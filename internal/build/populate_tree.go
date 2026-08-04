@@ -15,7 +15,6 @@ type PopulateTree struct {
 // field selection, sorting, filtering, and nested populates.
 type PopulateNode struct {
 	Relation string
-	Path     []string
 
 	Fields  []query.Field
 	Sorts   []query.Sort
@@ -43,7 +42,6 @@ func (t *PopulateTree) Ensure(relations []string) *PopulateNode {
 	children, order := t.Children, &t.Order
 
 	var node *PopulateNode
-	var path []string
 
 	for _, relation := range relations {
 		n, ok := children[relation]
@@ -52,9 +50,6 @@ func (t *PopulateTree) Ensure(relations []string) *PopulateNode {
 			children[relation] = n
 			*order = append(*order, relation)
 		}
-
-		path = append(path, relation)
-		n.Path = append([]string(nil), path...)
 
 		node = n
 		children = n.Children

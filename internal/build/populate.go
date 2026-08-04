@@ -18,14 +18,16 @@ const (
 // BuildPopulate dispatches populate parameter building based on syntax mode.
 // Returns the built populates, whether wildcard (*) was specified, and any error.
 func BuildPopulate(params []query.Param) ([]query.Populate, bool, error) {
-	if hasWildcard(params) {
+	wildcard, syntax := scanPopulateSyntax(params)
+
+	if wildcard {
 		if len(params) != 1 {
 			return nil, false, query.QueryError(query.ErrInvalidPopulate, "populate=* must be used alone")
 		}
 		return nil, true, nil
 	}
 
-	switch classifyPopulateSyntax(params) {
+	switch syntax {
 	case populateSyntaxIndexed:
 		populates, err := buildPopulateIndexed(params)
 		return populates, false, err
@@ -37,31 +39,13 @@ func BuildPopulate(params []query.Param) ([]query.Populate, bool, error) {
 	}
 }
 
-// hasWildcard reports whether any param represents a wildcard populate (*).
-func hasWildcard(params []query.Param) bool {
-	for _, p := range params {
-		if p.Value != "*" {
-			continue
-		}
-
-		if len(p.Path) == 1 {
-			return true
-		}
-
-		if len(p.Path) == 2 {
-			if _, err := strconv.Atoi(p.Path[1]); err == nil {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-// classifyPopulateSyntax determines whether params use indexed or relation-keyed syntax.
-func classifyPopulateSyntax(params []query.Param) populateSyntax {
+// scanPopulateSyntax reports whether any param is the wildcard (*) and
+// classifies the params as indexed or relation-keyed in a single pass.
+// Wildcard detection takes precedence over syntax classification, matching the
+// previous two-pass behavior.
+func scanPopulateSyntax(params []query.Param) (wildcard bool, syntax populateSyntax) {
 	if len(params) == 0 {
-		return populateSyntaxIndexed
+		return false, populateSyntaxIndexed
 	}
 
 	var hasIndexed, hasRelation bool
@@ -70,25 +54,30 @@ func classifyPopulateSyntax(params []query.Param) populateSyntax {
 		switch {
 		case len(p.Path) == 1:
 			hasIndexed = true
+			if p.Value == "*" {
+				wildcard = true
+			}
 
 		default:
-			if _, err := strconv.Atoi(p.Path[1]); err == nil {
-				hasIndexed = true
-			} else {
+			if _, err := strconv.Atoi(p.Path[1]); err != nil {
 				hasRelation = true
+				continue
+			}
+			hasIndexed = true
+			if len(p.Path) == 2 && p.Value == "*" {
+				wildcard = true
 			}
 		}
-
-		if hasIndexed && hasRelation {
-			return populateSyntaxInvalid
-		}
 	}
 
-	if hasIndexed {
-		return populateSyntaxIndexed
+	switch {
+	case hasIndexed && hasRelation:
+		return wildcard, populateSyntaxInvalid
+	case hasIndexed:
+		return wildcard, populateSyntaxIndexed
+	default:
+		return wildcard, populateSyntaxRelation
 	}
-
-	return populateSyntaxRelation
 }
 
 // buildPopulateIndexed handles the shorthand syntax: populate[0]=author.

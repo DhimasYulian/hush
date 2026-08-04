@@ -7,6 +7,8 @@ import (
 )
 
 // buildCondition constructs a leaf [query.Condition] from a path and operator node.
+// The path is copied so sibling branches that share an underlying slice during
+// descent cannot mutate this condition's stored path.
 func buildCondition(path query.Path, n *Node) (query.Filter, error) {
 	op, ok := operators[n.Segment]
 	if !ok {
@@ -18,7 +20,7 @@ func buildCondition(path query.Path, n *Node) (query.Filter, error) {
 		return nil, err
 	}
 
-	return query.Condition{Path: path, Operator: op, Value: value}, nil
+	return query.Condition{Path: append([]string(nil), path...), Operator: op, Value: value}, nil
 }
 
 func buildValue(op query.Operator, n *Node) (query.Value, error) {
@@ -44,7 +46,7 @@ func buildValue(op query.Operator, n *Node) (query.Value, error) {
 }
 
 func buildField(n *Node, path query.Path) (query.Filter, error) {
-	path = extendPath(path, n.Segment)
+	path = append(path, n.Segment)
 
 	child, err := n.OnlyChild()
 	if err != nil {
@@ -59,11 +61,4 @@ func buildField(n *Node, path query.Path) (query.Filter, error) {
 	default:
 		return buildField(child, path)
 	}
-}
-
-// extendPath appends a segment to a path, returning a new slice.
-func extendPath(path query.Path, segment string) query.Path {
-	next := make(query.Path, len(path), len(path)+1)
-	copy(next, path)
-	return append(next, segment)
 }

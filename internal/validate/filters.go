@@ -2,8 +2,6 @@ package validate
 
 import (
 	"fmt"
-	"strconv"
-	"time"
 
 	"github.com/DhimasYulian/hush/internal/coerce"
 	"github.com/DhimasYulian/hush/internal/query"
@@ -116,54 +114,18 @@ func validateValue(t schema.FieldType, op query.Operator, values query.Value, fi
 		t = schema.TypeBool
 	}
 
+	out := make([]any, 0, len(values))
 	for _, v := range values {
-		if err := validateValueType(t, v); err != nil {
+		coerced, err := coerce.Coerce(t, v)
+		if err != nil {
 			return nil, query.FieldError(ErrInvalidValue, field, fmt.Sprintf("field %q: %s", field, err))
 		}
+		out = append(out, coerced)
 	}
 
 	if op == query.OpNull || op == query.OpNotNull {
 		return nil, nil
 	}
 
-	out := make([]any, len(values))
-	for i, v := range values {
-		coerced, err := coerce.Coerce(t, v)
-		if err != nil {
-			return nil, query.FieldError(ErrInvalidValue, field, fmt.Sprintf("field %q: %s", field, err))
-		}
-		out[i] = coerced
-	}
-
 	return out, nil
-}
-
-// validateValueType checks that a single string value parses correctly for the
-// given field type (string, number, bool, or RFC3339 date).
-func validateValueType(t schema.FieldType, v string) error {
-	switch t {
-	case schema.TypeString:
-		return nil
-
-	case schema.TypeNumber:
-		if _, err := strconv.ParseFloat(v, 64); err != nil {
-			return fmt.Errorf("%q is not a valid number", v)
-		}
-		return nil
-
-	case schema.TypeBool:
-		if _, err := strconv.ParseBool(v); err != nil {
-			return fmt.Errorf("%q is not a valid bool", v)
-		}
-		return nil
-
-	case schema.TypeDate:
-		if _, err := time.Parse(time.RFC3339, v); err != nil {
-			return fmt.Errorf("%q is not a valid RFC3339 date", v)
-		}
-		return nil
-
-	default:
-		return fmt.Errorf("unknown field type %q", t)
-	}
 }

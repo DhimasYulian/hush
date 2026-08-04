@@ -224,7 +224,6 @@ A specialized tree for building nested populate relations. Unlike the generic fi
 
 A node in the populate tree with:
 - `Relation` -- the relation name
-- `Path` -- the full path from root
 - `Fields`, `Sorts`, `Filters` -- relation-level options
 - `Children`, `Order` -- nested relations
 

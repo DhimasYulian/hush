@@ -61,18 +61,29 @@ func (n *Node) OrderedChildren() []*Node {
 func (n *Node) IndexedChildren() ([]*Node, error) {
 	children := n.OrderedChildren()
 
-	for _, c := range children {
-		if _, err := strconv.Atoi(c.Segment); err != nil {
+	indexed := make([]indexedChild, len(children))
+	for i, c := range children {
+		idx, err := strconv.Atoi(c.Segment)
+		if err != nil {
 			return nil, fmt.Errorf("expected numeric index, got %q", c.Segment)
 		}
+		indexed[i] = indexedChild{index: idx, node: c}
 	}
 
-	sorted := slices.Clone(children)
-	slices.SortFunc(sorted, func(a, b *Node) int {
-		ai, _ := strconv.Atoi(a.Segment)
-		bi, _ := strconv.Atoi(b.Segment)
-		return cmp.Compare(ai, bi)
+	slices.SortFunc(indexed, func(a, b indexedChild) int {
+		return cmp.Compare(a.index, b.index)
 	})
 
+	sorted := make([]*Node, len(indexed))
+	for i, c := range indexed {
+		sorted[i] = c.node
+	}
+
 	return sorted, nil
+}
+
+// indexedChild pairs a parsed numeric index with its child node.
+type indexedChild struct {
+	index int
+	node  *Node
 }

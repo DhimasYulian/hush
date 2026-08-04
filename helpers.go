@@ -13,10 +13,16 @@ import "strings"
 //	$startsWith: EscapeLike(v) + "%"
 //	$endsWith:   "%" + EscapeLike(v)
 func EscapeLike(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `%`, `\%`)
-	s = strings.ReplaceAll(s, `_`, `\_`)
-	return s
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\', '%', '_':
+			sb.WriteByte('\\')
+		}
+		sb.WriteByte(s[i])
+	}
+	return sb.String()
 }
 
 // IsNullOperator reports whether the operator is $null, which maps to SQL's IS

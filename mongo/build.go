@@ -31,7 +31,7 @@ func (t Translator) Sort(schema *hush.Schema, q *hush.Query) bson.D {
 		return nil
 	}
 
-	sort := bson.D{}
+	sort := make(bson.D, 0, len(q.Sort))
 	for _, s := range q.Sort {
 		if len(s.Path) == 0 {
 			continue
